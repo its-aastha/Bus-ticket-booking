@@ -100,10 +100,10 @@ Analyzes customer feedback and identifies sentiment and key topics.
 * Uses in-memory storage (no database)
 * No user authentication
 * No payment gateway integration
-* No frontend interface
+* No user authentication on the frontend
 
 ---
 
 ## 10. Conclusion
 
-The **Bus Booking Backend Engine** is a backend-focused application designed to manage bus reservations through REST APIs. It effectively handles seat availability, temporary holds, booking confirmation, cancellations, and refunds 25 % while preventing duplicate seat bookings. The project demonstrates the core concepts of backend system design and provides a strong foundation for building a complete bus reservation platform.
+The **Bus Booking system** now combines the FastAPI backend with a TypeScript seat-allocation frontend. It handles live availability, temporary holds, booking confirmation, cancellations, and refunds 25 % while preventing duplicate seat bookings. The project demonstrates the core concepts of backend system design and now provides a usable reservation interface as well.
