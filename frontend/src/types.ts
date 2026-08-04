@@ -37,3 +37,25 @@ export interface ConfirmBookingResponse {
   total_amount: number;
   status: 'confirmed' | 'cancelled';
 }
+
+export interface CancelBookingResponse {
+  booking_id: string;
+  status: 'confirmed' | 'cancelled';
+  refund_amount: number;
+  refund_percentage: number;
+}
+
+export interface BookingReceipt {
+  booking_id: string;
+  trip_id: string;
+  user_id: string;
+  seat_numbers: number[];
+  total_amount: number;
+  status: 'confirmed' | 'cancelled';
+  departure_time: string;
+  fare_per_seat: number;
+  booked_at: string;
+  cancelled_at?: string;
+  refund_amount?: number;
+  refund_percentage?: number;
+}

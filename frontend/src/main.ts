@@ -1,5 +1,7 @@
-import { confirmHold, createHold, listTrips } from './api';
-import type { SeatHold, TripSnapshot } from './types';
+import { jsPDF } from 'jspdf';
+
+import { cancelBooking, confirmHold, createHold, listTrips } from './api';
+import type { BookingReceipt, SeatHold, TripSnapshot } from './types';
 import './styles.css';
 
 type NoticeKind = 'info' | 'success' | 'error';
@@ -11,6 +13,7 @@ type AppState = {
   userId: string;
   holdMinutes: number;
   currentHold: SeatHold | null;
+  currentBooking: BookingReceipt | null;
   bookingMessage: string;
   bookingKind: NoticeKind;
   loading: boolean;
@@ -24,6 +27,7 @@ const state: AppState = {
   userId: 'guest-1',
   holdMinutes: 15,
   currentHold: null,
+  currentBooking: null,
   bookingMessage: 'Select a trip, choose seats, and hold them before confirming.',
   bookingKind: 'info',
   loading: false,
@@ -49,9 +53,9 @@ function formatTime(value: string): string {
 }
 
 function formatCurrency(value: number): string {
-  return new Intl.NumberFormat('en-US', {
+  return new Intl.NumberFormat('en-IN', {
     style: 'currency',
-    currency: 'USD',
+    currency: 'INR',
     maximumFractionDigits: 2,
   }).format(value);
 }
@@ -143,8 +147,95 @@ function selectTrip(tripId: string): void {
   state.selectedTripId = tripId;
   state.selectedSeatNumbers = new Set<number>();
   state.currentHold = null;
+  state.currentBooking = null;
   updateBookingMessage('Trip changed. Choose the seats you want to hold.', 'info');
   render();
+}
+
+function currentTripForBooking(booking: BookingReceipt): TripSnapshot | null {
+  return state.trips.find((trip) => trip.trip_id === booking.trip_id) ?? null;
+}
+
+function downloadBookingPdf(booking: BookingReceipt): void {
+  const trip = currentTripForBooking(booking);
+  const doc = new jsPDF();
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(18);
+  doc.text('Bus Booking Receipt', 14, 18);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(11);
+
+  const lines = [
+    `Booking ID: ${booking.booking_id}`,
+    `Trip ID: ${booking.trip_id}`,
+    `User ID: ${booking.user_id}`,
+    `Departure Time: ${formatTime(booking.departure_time)}`,
+    `Seats: ${booking.seat_numbers.join(', ')}`,
+    `Fare per Seat: ${formatCurrency(booking.fare_per_seat)}`,
+    `Total Price: ${formatCurrency(booking.total_amount)}`,
+    `Status: ${booking.status}`,
+    trip ? `Available Seats Remaining: ${trip.available_seats.length}` : undefined,
+    `Booked At: ${formatTime(booking.booked_at)}`,
+  ].filter((line): line is string => Boolean(line));
+
+  let y = 32;
+  for (const line of lines) {
+    doc.text(line, 14, y);
+    y += 8;
+  }
+
+  if (booking.status === 'cancelled') {
+    y += 4;
+    doc.setFont('helvetica', 'bold');
+    doc.text('Cancellation Details', 14, y);
+    y += 8;
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Refund Percentage: ${booking.refund_percentage ?? 0}%`, 14, y);
+    y += 8;
+    doc.text(`Refund Amount: ${formatCurrency(booking.refund_amount ?? 0)}`, 14, y);
+    y += 8;
+    if (booking.cancelled_at) {
+      doc.text(`Cancelled At: ${formatTime(booking.cancelled_at)}`, 14, y);
+    }
+  }
+
+  doc.save(`bus-booking-${booking.booking_id}.pdf`);
+}
+
+async function cancelCurrentBooking(): Promise<void> {
+  if (!state.currentBooking) {
+    updateBookingMessage('There is no confirmed booking to cancel.', 'error');
+    render();
+    return;
+  }
+
+  if (state.currentBooking.status === 'cancelled') {
+    updateBookingMessage('This booking has already been cancelled.', 'info');
+    render();
+    return;
+  }
+
+  try {
+    const cancelled = await cancelBooking(state.currentBooking.booking_id);
+    state.currentBooking = {
+      ...state.currentBooking,
+      status: 'cancelled',
+      cancelled_at: new Date().toISOString(),
+      refund_amount: cancelled.refund_amount,
+      refund_percentage: cancelled.refund_percentage,
+    };
+    updateBookingMessage(
+      `Booking cancelled. Refund ${formatCurrency(cancelled.refund_amount)} (${cancelled.refund_percentage}%).`,
+      'success',
+    );
+    await refreshTrips();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unable to cancel the booking.';
+    updateBookingMessage(message, 'error');
+    await refreshTrips();
+  }
 }
 
 async function holdSelectedSeats(): Promise<void> {
@@ -197,11 +288,32 @@ async function confirmCurrentHold(): Promise<void> {
 
   try {
     const confirmed = await confirmHold(state.currentHold.hold_id);
+    const trip = selectedTrip();
+    if (!trip) {
+      updateBookingMessage('Trip details are no longer available for this booking.', 'error');
+      await refreshTrips();
+      return;
+    }
+
+    const booking: BookingReceipt = {
+      booking_id: confirmed.booking_id,
+      trip_id: confirmed.trip_id,
+      user_id: confirmed.user_id,
+      seat_numbers: confirmed.seat_numbers,
+      total_amount: confirmed.total_amount,
+      status: confirmed.status,
+      departure_time: trip.departure_time,
+      fare_per_seat: trip.fare_per_seat,
+      booked_at: new Date().toISOString(),
+    };
+
+    state.currentBooking = booking;
     updateBookingMessage(
       `Booking confirmed for seats ${confirmed.seat_numbers.join(', ')}. Total amount: ${formatCurrency(confirmed.total_amount)}.`,
       'success',
     );
     state.currentHold = null;
+    downloadBookingPdf(booking);
     await refreshTrips();
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unable to confirm the hold.';
@@ -342,6 +454,48 @@ function renderTrips(): string {
     .join('');
 }
 
+function renderBookingSummary(): string {
+  if (!state.currentBooking) {
+    return '<div class="empty-state">No confirmed booking yet. Your booking receipt will appear here after confirmation.</div>';
+  }
+
+  const booking = state.currentBooking;
+
+  return `
+    <div class="booking-card ${booking.status}">
+      <div class="booking-head">
+        <div>
+          <div class="eyebrow">Booking receipt</div>
+          <h3>${booking.trip_id}</h3>
+          <p class="subtitle">Booking ID ${escapeHtml(booking.booking_id)}</p>
+        </div>
+        <div class="booking-status ${booking.status}">${booking.status}</div>
+      </div>
+
+      <div class="receipt-grid">
+        <div class="detail-row"><span>Departure time</span><strong>${formatTime(booking.departure_time)}</strong></div>
+        <div class="detail-row"><span>Seats</span><strong>${booking.seat_numbers.join(', ')}</strong></div>
+        <div class="detail-row"><span>Fare per seat</span><strong>${formatCurrency(booking.fare_per_seat)}</strong></div>
+        <div class="detail-row"><span>Total price</span><strong>${formatCurrency(booking.total_amount)}</strong></div>
+      </div>
+
+      ${booking.status === 'cancelled' ? `
+        <div class="refund-box">
+          <div class="detail-row"><span>Refund percentage</span><strong>${booking.refund_percentage ?? 0}%</strong></div>
+          <div class="detail-row"><span>Refund amount</span><strong>${formatCurrency(booking.refund_amount ?? 0)}</strong></div>
+        </div>
+      ` : ''}
+
+      <div class="toolbar booking-actions">
+        <button class="button button-secondary" id="download-receipt" type="button">Download PDF</button>
+        <button class="button button-ghost" id="cancel-booking" type="button" ${booking.status === 'cancelled' ? 'disabled' : ''}>
+          Cancel booking
+        </button>
+      </div>
+    </div>
+  `;
+}
+
 function render(): void {
   const trip = selectedTrip();
 
@@ -442,6 +596,11 @@ function render(): void {
                 <div class="detail-row"><span>User</span><strong>${escapeHtml(state.currentHold.user_id)}</strong></div>
               </div>
             ` : ''}
+
+            <div>
+              <h3 style="margin:0 0 10px;">Confirmed booking</h3>
+              ${renderBookingSummary()}
+            </div>
           </div>
         </aside>
       </div>
@@ -491,6 +650,16 @@ function render(): void {
     if (Number.isFinite(value) && value > 0) {
       state.holdMinutes = Math.min(Math.round(value), 120);
     }
+  });
+
+  root.querySelector<HTMLButtonElement>('#download-receipt')?.addEventListener('click', () => {
+    if (state.currentBooking) {
+      downloadBookingPdf(state.currentBooking);
+    }
+  });
+
+  root.querySelector<HTMLButtonElement>('#cancel-booking')?.addEventListener('click', () => {
+    void cancelCurrentBooking();
   });
 }
 

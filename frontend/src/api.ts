@@ -1,4 +1,4 @@
-import type { ConfirmBookingResponse, CreateHoldResponse, TripSnapshot } from './types';
+import type { CancelBookingResponse, ConfirmBookingResponse, CreateHoldResponse, TripSnapshot } from './types';
 
 const DEFAULT_API_BASE_URL = '/api';
 
@@ -66,6 +66,12 @@ export async function createHold(
 
 export async function confirmHold(holdId: string): Promise<ConfirmBookingResponse> {
   return requestJson<ConfirmBookingResponse>(`/holds/${encodeURIComponent(holdId)}/confirm`, {
+    method: 'POST',
+  });
+}
+
+export async function cancelBooking(bookingId: string): Promise<CancelBookingResponse> {
+  return requestJson<CancelBookingResponse>(`/bookings/${encodeURIComponent(bookingId)}/cancel`, {
     method: 'POST',
   });
 }
