@@ -227,39 +227,79 @@ function seatStatus(trip: TripSnapshot, seatNumber: number): 'available' | 'held
 }
 
 function renderSeatMap(trip: TripSnapshot): string {
-  const heldSeats = activeHeldSeats(trip);
   const seats = Array.from({ length: trip.total_seats }, (_, index) => index + 1);
+  const rows: number[][] = [];
 
-  return seats
-    .map((seatNumber) => {
-      const status = seatStatus(trip, seatNumber);
-      const isDisabled = status === 'booked' || status === 'held';
-      const label =
-        status === 'booked'
-          ? 'Booked'
-          : status === 'held'
-            ? 'Held'
-            : status === 'selected'
-              ? 'Selected'
-              : 'Available';
+  for (let index = 0; index < seats.length; index += 4) {
+    rows.push(seats.slice(index, index + 4));
+  }
+
+  const rowMarkup = rows
+    .map((rowSeats, rowIndex) => {
+      const leftSeats = rowSeats.slice(0, 2);
+      const rightSeats = rowSeats.slice(2, 4);
 
       return `
-        <button
-          class="seat ${status}"
-          data-seat-number="${seatNumber}"
-          ${isDisabled ? 'disabled' : ''}
-          aria-pressed="${status === 'selected'}"
-          aria-label="Seat ${seatNumber}, ${label}"
-          type="button"
-        >
-          <div>
-            <strong>${seatNumber}</strong>
-            <span>${label}</span>
+        <div class="bus-row" aria-label="Seat row ${rowIndex + 1}">
+          <div class="bus-side bus-side-left">
+            ${leftSeats
+              .map((seatNumber) => renderSeatButton(trip, seatNumber))
+              .join('')}
           </div>
-        </button>
+          <div class="bus-aisle" aria-hidden="true"></div>
+          <div class="bus-side bus-side-right">
+            ${rightSeats
+              .map((seatNumber) => renderSeatButton(trip, seatNumber))
+              .join('')}
+          </div>
+        </div>
       `;
     })
     .join('');
+
+  return `
+    <div class="bus-layout">
+      <div class="bus-front">
+        <div class="bus-front-label">Front of bus</div>
+        <div class="bus-front-details">
+          <span>Driver</span>
+          <span>Door</span>
+        </div>
+      </div>
+      <div class="bus-seatdeck">
+        ${rowMarkup}
+      </div>
+    </div>
+  `;
+}
+
+function renderSeatButton(trip: TripSnapshot, seatNumber: number): string {
+  const status = seatStatus(trip, seatNumber);
+  const isDisabled = status === 'booked' || status === 'held';
+  const label =
+    status === 'booked'
+      ? 'Booked'
+      : status === 'held'
+        ? 'Held'
+        : status === 'selected'
+          ? 'Selected'
+          : 'Available';
+
+  return `
+    <button
+      class="seat ${status}"
+      data-seat-number="${seatNumber}"
+      ${isDisabled ? 'disabled' : ''}
+      aria-pressed="${status === 'selected'}"
+      aria-label="Seat ${seatNumber}, ${label}"
+      type="button"
+    >
+      <div>
+        <strong>${seatNumber}</strong>
+        <span>${label}</span>
+      </div>
+    </button>
+  `;
 }
 
 function renderTrips(): string {
@@ -376,10 +416,10 @@ function render(): void {
             ${trip ? `
               <div>
                 <div class="legend">
-                  <span class="legend-item"><span class="swatch" style="background:#e2e8f0"></span>Available</span>
+                  <span class="legend-item"><span class="swatch" style="background:#dbe4ee"></span>Available</span>
                   <span class="legend-item"><span class="swatch" style="background:#0f766e"></span>Selected</span>
                   <span class="legend-item"><span class="swatch" style="background:#f59e0b"></span>Held</span>
-                  <span class="legend-item"><span class="swatch" style="background:#0f172a"></span>Booked</span>
+                  <span class="legend-item"><span class="swatch" style="background:#1e293b"></span>Booked</span>
                 </div>
                 <div class="seat-map" style="margin-top:16px;">
                   ${renderSeatMap(trip)}
